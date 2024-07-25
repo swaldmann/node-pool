@@ -8,6 +8,12 @@ const ResourceState = {
   VALIDATION: 'VALIDATION'
 }
 
+const DeferredState = {
+  PENDING: 'PENDING',
+  FULFILLED: 'FULFILLED',
+  REJECTED: 'REJECTED'
+}
+
 class PriorityQueue {
   constructor(size) {
     this._size = Math.max(Number(size) || 0, 1)
@@ -22,33 +28,22 @@ class PriorityQueue {
   enqueue(obj, priority) {
     const normalizedPriority = Math.min(Math.max(Number(priority) || 0, 0), this._size - 1)
     this._slots[normalizedPriority].push(obj)
-    if (normalizedPriority < this._nextNonEmptySlot) {
-      this._nextNonEmptySlot = normalizedPriority
-    }
+    this._nextNonEmptySlot = Math.min(this._nextNonEmptySlot, normalizedPriority)
   }
 
   dequeue() {
     while (this._nextNonEmptySlot < this._size && this._slots[this._nextNonEmptySlot].length === 0) {
       this._nextNonEmptySlot++
     }
-    if (this._nextNonEmptySlot < this._size) {
-      return this._slots[this._nextNonEmptySlot].shift()
-    }
-    return undefined
+    return this._nextNonEmptySlot < this._size ? this._slots[this._nextNonEmptySlot].shift() : undefined
   }
 
   get head() {
-    for (let i = 0; i < this._size; i++) {
-      if (this._slots[i].length > 0) return this._slots[i][0]
-    }
-    return undefined
+    return this._slots.find(slot => slot.length > 0)?.[0]
   }
 
   get tail() {
-    for (let i = this._size - 1; i >= 0; i--) {
-      if (this._slots[i].length > 0) return this._slots[i][this._slots[i].length - 1]
-    }
-    return undefined
+    return [...this._slots].reverse().find(slot => slot.length > 0)?.slice(-1)[0]
   }
 }
 
@@ -102,7 +97,7 @@ class PooledResource {
 
 class Deferred {
   constructor() {
-    this._state = Deferred.PENDING
+    this._state = DeferredState.PENDING
     this._promise = new Promise((resolve, reject) => {
       this._resolve = resolve
       this._reject = reject
@@ -118,21 +113,17 @@ class Deferred {
   }
 
   reject(reason) {
-    if (this._state !== Deferred.PENDING) return
-    this._state = Deferred.REJECTED
+    if (this._state !== DeferredState.PENDING) return
+    this._state = DeferredState.REJECTED
     this._reject(reason)
   }
 
   resolve(value) {
-    if (this._state !== Deferred.PENDING) return
-    this._state = Deferred.FULFILLED
+    if (this._state !== DeferredState.PENDING) return
+    this._state = DeferredState.FULFILLED
     this._resolve(value)
   }
 }
-
-Deferred.PENDING = 'PENDING'
-Deferred.FULFILLED = 'FULFILLED'
-Deferred.REJECTED = 'REJECTED'
 
 class ResourceRequest extends Deferred {
   constructor(ttl) {
@@ -144,7 +135,7 @@ class ResourceRequest extends Deferred {
   }
 
   setTimeout(delay) {
-    if (this._state !== Deferred.PENDING) return
+    if (this._state !== DeferredState.PENDING) return
     const ttl = parseInt(delay, 10)
     if (isNaN(ttl) || ttl <= 0) throw new Error('delay must be a positive int')
     this.removeTimeout()
@@ -182,11 +173,7 @@ class TimeoutError extends Error {
   constructor(message) {
     super(message)
     this.name = this.constructor.name
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, this.constructor)
-    } else {
-      this.stack = new Error(message).stack
-    }
+    Error.captureStackTrace?.(this, this.constructor)
   }
 }
 
@@ -230,19 +217,15 @@ class Pool extends EventEmitter {
     this._allObjects.delete(pooledResource)
     const destroyPromise = this.factory.destroy(pooledResource.obj)
     const wrappedDestroyPromise = this.options.destroyTimeoutMillis
-      ? this._applyDestroyTimeout(destroyPromise)
+      ? Promise.race([
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('destroy timed out')), this.options.destroyTimeoutMillis).unref()
+          ),
+          destroyPromise
+        ])
       : destroyPromise
     wrappedDestroyPromise.catch(reason => this.emit('factoryDestroyError', reason))
     this._ensureMinimum()
-  }
-
-  _applyDestroyTimeout(promise) {
-    return Promise.race([
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('destroy timed out')), this.options.destroyTimeoutMillis).unref()
-      ),
-      promise
-    ])
   }
 
   _createResource() {
@@ -274,8 +257,7 @@ class Pool extends EventEmitter {
       this._addPooledResourceToAvailableObjects(pooledResource)
       return false
     }
-    const loan = new ResourceLoan(pooledResource)
-    this._resourceLoans.set(pooledResource.obj, loan)
+    this._resourceLoans.set(pooledResource.obj, new ResourceLoan(pooledResource))
     pooledResource.allocate()
     clientResourceRequest.resolve(pooledResource.obj)
     return true
@@ -324,8 +306,7 @@ class Pool extends EventEmitter {
     this._availableObjects.delete(pooledResource)
     pooledResource.test()
     this._testOnBorrowResources.add(pooledResource)
-    const validationPromise = this.factory.validate(pooledResource.obj)
-    validationPromise
+    this.factory.validate(pooledResource.obj)
       .then(isValid => {
         this._testOnBorrowResources.delete(pooledResource)
         if (!isValid) {
@@ -353,13 +334,10 @@ class Pool extends EventEmitter {
       idleTimeoutMillis: this.options.idleTimeoutMillis,
       min: this.options.min,
     }
-    const resourcesToEvict = []
-    for (const resource of this._availableObjects) {
-      if (resourcesToEvict.length >= this.options.numTestsPerEvictionRun) break
-      if (this._evictor.evict(evictionConfig, resource, this._availableObjects.size)) {
-        resourcesToEvict.push(resource)
-      }
-    }
+    const resourcesToEvict = Array.from(this._availableObjects)
+      .slice(0, this.options.numTestsPerEvictionRun)
+      .filter(resource => this._evictor.evict(evictionConfig, resource, this._availableObjects.size))
+
     resourcesToEvict.forEach(resource => {
       this._availableObjects.delete(resource)
       this._destroy(resource)
@@ -373,11 +351,6 @@ class Pool extends EventEmitter {
         this._scheduleEvictorRun()
       }, this.options.evictionRunIntervalMillis).unref()
     }
-  }
-
-  _descheduleEvictorRun() {
-    if (this._scheduledEviction) clearTimeout(this._scheduledEviction)
-    this._scheduledEviction = null
   }
 
   start() {
@@ -444,19 +417,15 @@ class Pool extends EventEmitter {
     this._draining = true
     return this.__allResourceRequestsSettled()
       .then(() => this.__allResourcesReturned())
-      .then(() => this._descheduleEvictorRun())
+      .then(() => clearTimeout(this._scheduledEviction))
   }
 
   __allResourceRequestsSettled() {
-    if (this._waitingClientsQueue.length > 0) {
-      return this._waitingClientsQueue.tail.promise
-    }
-    return Promise.resolve()
+    return this._waitingClientsQueue.length > 0 ? this._waitingClientsQueue.tail.promise : Promise.resolve()
   }
 
   __allResourcesReturned() {
-    const ps = Array.from(this._resourceLoans.values()).map(loan => loan.promise)
-    return Promise.all(ps)
+    return Promise.all(Array.from(this._resourceLoans.values()).map(loan => loan.promise))
   }
 
   async clear() {
@@ -488,7 +457,7 @@ class Pool extends EventEmitter {
   }
 
   get spareResourceCapacity() {
-    return this.options.max - (this._allObjects.size + this._factoryCreateOperations.size)
+    return this.options.max - this._count
   }
 
   get size() {
@@ -513,6 +482,13 @@ class Pool extends EventEmitter {
 
   get min() {
     return this.options.min
+  }
+}
+
+class ResourceLoan extends Deferred {
+  constructor(pooledResource) {
+    super()
+    this.pooledResource = pooledResource
   }
 }
 

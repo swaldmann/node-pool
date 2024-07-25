@@ -6,52 +6,10 @@ const ResourceState = {
   VALIDATION: 'VALIDATION'
 }
 
-class Deque {
-  constructor() {
-    this._list = []
-  }
-  shift() {
-    return this._list.shift()
-  }
-  unshift(element) {
-    this._list.unshift(element)
-  }
-  push(element) {
-    this._list.push(element)
-  }
-  pop() {
-    return this._list.pop()
-  }
-  [Symbol.iterator]() {
-    return this._list[Symbol.iterator]()
-  }
-  get head() {
-    return this._list[0]
-  }
-  get tail() {
-    return this._list[this._list.length - 1]
-  }
-  get length() {
-    return this._list.length
-  }
-}
-
-class Queue extends Deque {
-  push(resourceRequest) {
-    const node = { data: resourceRequest }
-    resourceRequest.promise.catch(reason => {
-      if (reason.name === 'TimeoutError') {
-        this._list.remove(node)
-      }
-    })
-    this._list.push(node)
-  }
-}
-
 class PriorityQueue {
   constructor(size) {
     this._size = Math.max(+size | 0, 1)
-    this._slots = Array.from({ length: this._size }, () => new Queue())
+    this._slots = Array.from({ length: this._size }, () => [])
   }
 
   get length() {
@@ -59,28 +17,27 @@ class PriorityQueue {
   }
 
   enqueue(obj, priority) {
-    priority = (priority && +priority | 0) || 0
-    priority = Math.min(Math.max(priority, 0), this._size - 1)
+    priority = Math.min(Math.max((priority && +priority | 0) || 0, 0), this._size - 1)
     this._slots[priority].push(obj)
   }
 
   dequeue() {
-    for (let slot of this._slots) {
+    for (const slot of this._slots) {
       if (slot.length) return slot.shift()
     }
     return undefined
   }
 
   get head() {
-    for (let slot of this._slots) {
-      if (slot.length > 0) return slot.head
+    for (const slot of this._slots) {
+      if (slot.length > 0) return slot[0]
     }
     return undefined
   }
 
   get tail() {
     for (let i = this._slots.length - 1; i >= 0; i--) {
-      if (this._slots[i].length > 0) return this._slots[i].tail
+      if (this._slots[i].length > 0) return this._slots[i][this._slots[i].length - 1]
     }
     return undefined
   }
@@ -137,9 +94,6 @@ class PooledResource {
 class Deferred {
   constructor() {
     this._state = Deferred.PENDING
-    this._resolve = undefined
-    this._reject = undefined
-
     this._promise = new Promise((resolve, reject) => {
       this._resolve = resolve
       this._reject = reject
@@ -177,8 +131,6 @@ class ResourceLoan extends Deferred {
     this._creationTimestamp = Date.now()
     this.pooledResource = pooledResource
   }
-
-  reject() { /** Loans can only be resolved at the moment */ }
 }
 
 class ResourceRequest extends Deferred {
@@ -254,10 +206,14 @@ class Pool extends require('events').EventEmitter {
     this._draining = false
     this._started = false
     this._waitingClientsQueue = new PriorityQueue(this.options.priorityRange)
-    this._availableObjects = new Deque()
+    this._availableObjects = new Set()
     this._resourceLoans = new Map()
     this._allObjects = new Set()
     this._evictor = new DefaultEvictor()
+    this._factoryCreateOperations = new Set()
+    this._factoryDestroyOperations = new Set()
+    this._testOnBorrowResources = new Set()
+    this._testOnReturnResources = new Set()
     if (this.options.autostart) this.start()
   }
 
@@ -283,14 +239,17 @@ class Pool extends require('events').EventEmitter {
 
   _createResource() {
     const factoryPromise = this.factory.create()
+    this._factoryCreateOperations.add(factoryPromise)
     factoryPromise
       .then(resource => {
+        this._factoryCreateOperations.delete(factoryPromise)
         const pooledResource = new PooledResource(resource)
         this._allObjects.add(pooledResource)
         this._addPooledResourceToAvailableObjects(pooledResource)
         this._dispense()
       })
       .catch(reason => {
+        this._factoryCreateOperations.delete(factoryPromise)
         this.emit('factoryCreateError', reason)
         this._dispense()
       })
@@ -298,11 +257,7 @@ class Pool extends require('events').EventEmitter {
 
   _addPooledResourceToAvailableObjects(pooledResource) {
     pooledResource.idle()
-    if (this.options.fifo) {
-      this._availableObjects.push(pooledResource)
-    } else {
-      this._availableObjects.unshift(pooledResource)
-    }
+    this._availableObjects.add(pooledResource)
   }
 
   _dispatchPooledResourceToNextWaitingClient(pooledResource) {
@@ -331,26 +286,34 @@ class Pool extends require('events').EventEmitter {
     if (numWaitingClients < 1) return
     const resourceShortfall = numWaitingClients - this._potentiallyAllocableResourceCount
     const actualNumberOfResourcesToCreate = Math.min(this.spareResourceCapacity, resourceShortfall)
-    for (let i = 0; actualNumberOfResourcesToCreate > i; i++) {
+    for (let i = 0; i < actualNumberOfResourcesToCreate; i++) {
       this._createResource()
     }
     if (this.options.testOnBorrow) {
-      const desiredNumberOfResourcesToMoveIntoTest = numWaitingClients - this._testOnBorrowResources.size
-      const actualNumberOfResourcesToMoveIntoTest = Math.min(this._availableObjects.length, desiredNumberOfResourcesToMoveIntoTest)
-      for (let i = 0; actualNumberOfResourcesToMoveIntoTest > i; i++) {
-        this._testOnBorrow()
-      }
+      this._testAndDispatchResources(numWaitingClients)
     } else {
-      const actualNumberOfResourcesToDispatch = Math.min(this._availableObjects.length, numWaitingClients)
-      for (let i = 0; actualNumberOfResourcesToDispatch > i; i++) {
-        this._dispatchResource()
-      }
+      this._dispatchAvailableResources(numWaitingClients)
+    }
+  }
+
+  _testAndDispatchResources(numWaitingClients) {
+    const resourcesToTest = Math.min(this._availableObjects.size, numWaitingClients - this._testOnBorrowResources.size)
+    for (let i = 0; i < resourcesToTest; i++) {
+      this._testOnBorrow()
+    }
+  }
+
+  _dispatchAvailableResources(numWaitingClients) {
+    const resourcesToDispatch = Math.min(this._availableObjects.size, numWaitingClients)
+    for (let i = 0; i < resourcesToDispatch; i++) {
+      this._dispatchResource()
     }
   }
 
   _testOnBorrow() {
-    if (this._availableObjects.length < 1) return false
-    const pooledResource = this._availableObjects.shift()
+    if (this._availableObjects.size < 1) return false
+    const pooledResource = this._availableObjects.values().next().value
+    this._availableObjects.delete(pooledResource)
     pooledResource.test()
     this._testOnBorrowResources.add(pooledResource)
     const validationPromise = this.factory.validate(pooledResource.obj)
@@ -369,27 +332,28 @@ class Pool extends require('events').EventEmitter {
   }
 
   _dispatchResource() {
-    if (this._availableObjects.length < 1) return false
-    const pooledResource = this._availableObjects.shift()
+    if (this._availableObjects.size < 1) return false
+    const pooledResource = this._availableObjects.values().next().value
+    this._availableObjects.delete(pooledResource)
     this._dispatchPooledResourceToNextWaitingClient(pooledResource)
-    return false
+    return true
   }
 
   _evict() {
-    const testsToRun = Math.min(this.options.numTestsPerEvictionRun, this._availableObjects.length)
+    const testsToRun = Math.min(this.options.numTestsPerEvictionRun, this._availableObjects.size)
     const evictionConfig = {
       softIdleTimeoutMillis: this.options.softIdleTimeoutMillis,
       idleTimeoutMillis: this.options.idleTimeoutMillis,
       min: this.options.min,
     }
+    const availableObjects = Array.from(this._availableObjects)
     for (let testsHaveRun = 0; testsHaveRun < testsToRun;) {
-      const resource = this._availableObjects.shift()
-      const shouldEvict = this._evictor.evict(evictionConfig, resource, this._availableObjects.length)
+      const resource = availableObjects[testsHaveRun]
+      const shouldEvict = this._evictor.evict(evictionConfig, resource, this._availableObjects.size)
       testsHaveRun++
       if (shouldEvict) {
+        this._availableObjects.delete(resource)
         this._destroy(resource)
-      } else {
-        this._availableObjects.push(resource)
       }
     }
   }
@@ -420,7 +384,7 @@ class Pool extends require('events').EventEmitter {
     if (this._draining) return Promise.reject(new Error('pool is draining and cannot accept work'))
     if (
       this.spareResourceCapacity < 1 &&
-      this._availableObjects.length < 1 &&
+      this._availableObjects.size < 1 &&
       this.options.maxWaitingClients !== undefined &&
       this._waitingClientsQueue.length >= this.options.maxWaitingClients
     ) {
@@ -508,7 +472,7 @@ class Pool extends require('events').EventEmitter {
   }
 
   get _potentiallyAllocableResourceCount() {
-    return this._availableObjects.length + this._testOnBorrowResources.size + this._testOnReturnResources.size + this._factoryCreateOperations.size
+    return this._availableObjects.size + this._testOnBorrowResources.size + this._testOnReturnResources.size + this._factoryCreateOperations.size
   }
 
   get _count() {
@@ -524,7 +488,7 @@ class Pool extends require('events').EventEmitter {
   }
 
   get available() {
-    return this._availableObjects.length
+    return this._availableObjects.size
   }
 
   get borrowed() {

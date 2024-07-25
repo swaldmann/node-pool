@@ -390,7 +390,6 @@ class ResourceRequest extends Deferred {
   setTimeout(delay) {
     if (this._state !== ResourceRequest.PENDING) return
     const ttl = parseInt(delay, 10)
-
     if (isNaN(ttl) || ttl <= 0) {
       throw new Error('delay must be a positive int')
     }
@@ -470,9 +469,6 @@ class PriorityQueue {
 
   get tail() {
     for (let i = this._slots.length - 1; i >= 0; i--) {
-      if (this._slots[i].length > 0) {
-        return this._slots[i].tail
-      }
       if (this._slots[i].length > 0) return this._slots[i].tail
     }
     return undefined
@@ -534,7 +530,6 @@ class Pool extends EventEmitter {
   _destroy(pooledResource) { // FIXME: do we need another state for 'in destruction'?
     pooledResource.invalidate()
     this._allObjects.delete(pooledResource)
-    // NOTE: this maybe very bad promise usage?
     const destroyPromise = this._factory.destroy(pooledResource.obj)
     const wrappedDestroyPromise = this._config.destroyTimeoutMillis
       ? this._Promise.resolve(this._applyDestroyTimeout(destroyPromise))
@@ -595,9 +590,7 @@ class Pool extends EventEmitter {
       for (let i = 0; actualNumberOfResourcesToMoveIntoTest > i; i++) {
         this._testOnBorrow()
       }
-    }
-    // if we aren't testing-on-borrow then lets try to allocate what we can
-    if (this._config.testOnBorrow === false) {
+    } else {
       const actualNumberOfResourcesToDispatch = Math.min(this._availableObjects.length, numWaitingClients)
       for (let i = 0; actualNumberOfResourcesToDispatch > i; i++) {
         this._dispatchResource()
@@ -606,9 +599,8 @@ class Pool extends EventEmitter {
   }
   _dispatchPooledResourceToNextWaitingClient(pooledResource) {
     const clientResourceRequest = this._waitingClientsQueue.dequeue()
-    if (clientResourceRequest === undefined || clientResourceRequest.state !== Deferred.PENDING) {
+    if (!clientResourceRequest || clientResourceRequest.state !== Deferred.PENDING) {
       this._addPooledResourceToAvailableObjects(pooledResource)
-      // TODO: do need to trigger anything before we leave?
       return false
     }
     const loan = new ResourceLoan(pooledResource, this._Promise)
@@ -617,6 +609,7 @@ class Pool extends EventEmitter {
     clientResourceRequest.resolve(pooledResource.obj)
     return true
   }
+
   _trackOperation(operation, set) {
     set.add(operation)
     return operation.then(
@@ -663,7 +656,7 @@ class Pool extends EventEmitter {
     const evictionConfig = {
       softIdleTimeoutMillis: this._config.softIdleTimeoutMillis,
       idleTimeoutMillis: this._config.idleTimeoutMillis,
-      min: this._config.min
+      min: this._config.min,
     }
 
     for (let testsHaveRun = 0; testsHaveRun < testsToRun;) {
@@ -715,7 +708,6 @@ class Pool extends EventEmitter {
     if (!this._started && !this._config.autostart) this.start()
     if (this._draining) return this._Promise.reject(new Error('pool is draining and cannot accept work'))
 
-    // TODO: should we defer this check till after this event loop incase 'the situation' changes in the meantime
     if (
       this.spareResourceCapacity < 1 &&
       this._availableObjects.length < 1 &&

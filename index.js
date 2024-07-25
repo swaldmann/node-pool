@@ -31,7 +31,7 @@ class Deque {
   }
 
   pop() {
-    if (this.length === 0) return undefined
+    if (this._list.length === 0) return undefined
     const node = this._list.tail
     this._list.remove(node)
     return node.data
@@ -50,19 +50,13 @@ class Deque {
   }
 
   get head() {
-    if (this.length === 0) {
-      return undefined
-    }
-    const node = this._list.head
-    return node.data
+    if (this._list.length === 0) return undefined
+    return this._list.head.data
   }
 
   get tail() {
-    if (this.length === 0) {
-      return undefined
-    }
-    const node = this._list.tail
-    return node.data
+    if (this._list.length === 0) return undefined
+    return this._list.tail.data
   }
 
   get length() {
@@ -80,18 +74,13 @@ class DoublyLinkedListIterator {
     this._done = false
   }
 
-  _start() {
-    this._cursor = this._list[this._startPosition]
-    this._started = true
-  }
-
   _advanceCursor() {
-    if (this._started === false) {
-      this._started = true
+    if (!this._started) {
       this._cursor = this._list[this._startPosition]
-      return
+      this._started = true
+    } else {
+      this._cursor = this._cursor[this._direction]
     }
-    this._cursor = this._cursor[this._direction]
   }
 
   reset() {
@@ -100,37 +89,16 @@ class DoublyLinkedListIterator {
     this._cursor = null
   }
 
-  remove() {
-    if (
-      this._started === false ||
-      this._done === true ||
-      this._isCursorDetached()
-    ) {
-      return false
-    }
-    this._list.remove(this._cursor)
-  }
-
   next() {
-    if (this._done === true) {
-      return { done: true }
-    }
-
+    if (this._done) return { done: true }
     this._advanceCursor()
-
-    // if there is no node at the cursor or the node at the cursor is no longer part of
-    // a doubly linked list then we are done
-    if (this._cursor === null || this._isCursorDetached()) {
+    if (!this._cursor || this._isCursorDetached()) {
       this._done = true
       return { done: true }
     }
-
-    return {
-      value: this._cursor,
-      done: false
-    }
+    return { value: this._cursor, done: false }
   }
-  // TODO: We can make this smarter by checking the direction of travel and only checking
+
   _isCursorDetached() {
     return (
       this._cursor.prev === null &&
@@ -211,12 +179,10 @@ class DoublyLinkedList {
     if (this.head === null) {
       this.head = node
       this.tail = node
-      node.prev = null
-      node.next = null
-      this.length++
     } else {
       this.insertBefore(this.head, node)
     }
+    this.length++
   }
 
   insertEnd(node) {

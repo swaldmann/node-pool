@@ -512,18 +512,17 @@ class Pool extends EventEmitter {
     return resourceRequest.promise
   }
 
-  use(fn, priority) {
-    return this.acquire(priority).then(resource =>
-      fn(resource).then(
-        result => {
-          this.release(resource)
-          return result
-        },
-        err => {
-          this.destroy(resource)
-          throw err
-        }
-      )
+  async use(fn, priority) {
+    const resource = await this.acquire(priority)
+    return fn(resource).then(
+      result => {
+        this.release(resource)
+        return result
+      },
+      err => {
+        this.destroy(resource)
+        throw err
+      }
     )
   }
 
@@ -570,15 +569,14 @@ class Pool extends EventEmitter {
     return Promise.all(ps)
   }
 
-  clear() {
+  async clear() {
     const reflectedCreatePromises = Array.from(this._factoryCreateOperations)
-    return Promise.all(reflectedCreatePromises).then(() => {
-      for (const resource of this._availableObjects) {
-        this._destroy(resource)
-      }
-      const reflectedDestroyPromises = Array.from(this._factoryDestroyOperations)
-      return Promise.all(reflectedDestroyPromises)
-    })
+    await Promise.all(reflectedCreatePromises)
+    for (const resource of this._availableObjects) {
+      this._destroy(resource)
+    }
+    const reflectedDestroyPromises = Array.from(this._factoryDestroyOperations)
+    return Promise.all(reflectedDestroyPromises)
   }
 
   ready() {

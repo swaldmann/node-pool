@@ -1,3 +1,5 @@
+const { EventEmitter } = require('events')
+
 const ResourceState = {
   ALLOCATED: 'ALLOCATED',
   IDLE: 'IDLE',
@@ -125,34 +127,29 @@ Deferred.PENDING = 'PENDING'
 Deferred.FULFILLED = 'FULFILLED'
 Deferred.REJECTED = 'REJECTED'
 
-class ResourceLoan extends Deferred {
-  constructor(pooledResource) {
-    super()
-    this._creationTimestamp = Date.now()
-    this.pooledResource = pooledResource
-  }
-}
-
 class ResourceRequest extends Deferred {
   constructor(ttl) {
     super()
-    this._creationTimestamp = Date.now()
     this._timeout = null
+    this._ttl = ttl || null
+    this._startTime = Date.now()
     if (ttl !== undefined) this.setTimeout(ttl)
   }
 
   setTimeout(delay) {
-    if (this._state !== ResourceRequest.PENDING) return
+    if (this._state !== Deferred.PENDING) return
     const ttl = parseInt(delay, 10)
     if (isNaN(ttl) || ttl <= 0) throw new Error('delay must be a positive int')
-    const age = Date.now() - this._creationTimestamp
-    if (this._timeout) this.removeTimeout()
-    this._timeout = setTimeout(() => this._fireTimeout(), Math.max(ttl - age, 0))
+    this.removeTimeout()
+    this._ttl = ttl
+    this._timeout = setTimeout(() => this._fireTimeout(), ttl)
   }
 
   removeTimeout() {
-    if (this._timeout) clearTimeout(this._timeout)
-    this._timeout = null
+    if (this._timeout) {
+      clearTimeout(this._timeout)
+      this._timeout = null
+    }
   }
 
   _fireTimeout() {
@@ -168,6 +165,10 @@ class ResourceRequest extends Deferred {
     this.removeTimeout()
     super.resolve(value)
   }
+
+  get remainingTime() {
+    return this._timeout ? Math.max(0, this._ttl - (Date.now() - this._startTime)) : 0
+  }
 }
 
 class TimeoutError extends Error {
@@ -182,7 +183,7 @@ class TimeoutError extends Error {
   }
 }
 
-class Pool extends require('events').EventEmitter {
+class Pool extends EventEmitter {
   constructor(factory, options = {}) {
     super()
     this.factory = factory

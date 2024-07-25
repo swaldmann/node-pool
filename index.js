@@ -1,6 +1,4 @@
-const { EventEmitter } = require('events')
-
-const PooledResourceStateEnum = {
+const ResourceState = {
   ALLOCATED: 'ALLOCATED',
   IDLE: 'IDLE',
   INVALID: 'INVALID',
@@ -113,34 +111,34 @@ class PooledResource {
     this.lastBorrowTime = null
     this.lastIdleTime = null
     this.obj = resource
-    this.state = PooledResourceStateEnum.IDLE
+    this.state = ResourceState.IDLE
   }
 
   allocate() {
     this.lastBorrowTime = Date.now()
-    this.state = PooledResourceStateEnum.ALLOCATED
+    this.state = ResourceState.ALLOCATED
   }
 
   deallocate() {
     this.lastReturnTime = Date.now()
-    this.state = PooledResourceStateEnum.IDLE
+    this.state = ResourceState.IDLE
   }
 
   invalidate() {
-    this.state = PooledResourceStateEnum.INVALID
+    this.state = ResourceState.INVALID
   }
 
   test() {
-    this.state = PooledResourceStateEnum.VALIDATION
+    this.state = ResourceState.VALIDATION
   }
 
   idle() {
     this.lastIdleTime = Date.now()
-    this.state = PooledResourceStateEnum.IDLE
+    this.state = ResourceState.IDLE
   }
 
   returning() {
-    this.state = PooledResourceStateEnum.RETURNING
+    this.state = ResourceState.RETURNING
   }
 }
 
@@ -240,7 +238,7 @@ class TimeoutError extends Error {
   }
 }
 
-class Pool extends EventEmitter {
+class Pool extends require('events').EventEmitter {
   constructor(factory, options = {}) {
     super()
     this.factory = factory

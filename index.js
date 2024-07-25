@@ -10,35 +10,27 @@ class Deque {
   constructor() {
     this._list = []
   }
-
   shift() {
     return this._list.shift()
   }
-
   unshift(element) {
     this._list.unshift(element)
   }
-
   push(element) {
     this._list.push(element)
   }
-
   pop() {
     return this._list.pop()
   }
-
   [Symbol.iterator]() {
     return this._list[Symbol.iterator]()
   }
-
   get head() {
     return this._list[0]
   }
-
   get tail() {
     return this._list[this._list.length - 1]
   }
-
   get length() {
     return this._list.length
   }

@@ -46,6 +46,270 @@ class Deque {
   }
 }
 
+class DoublyLinkedList {
+  constructor() {
+    this.head = null
+    this.tail = null
+    this.length = 0
+  }
+
+  insertBeginning(node) {
+    if (this.head === null) {
+      this.head = node
+      this.tail = node
+    } else {
+      this.insertBefore(this.head, node)
+    }
+    this.length++
+  }
+
+  insertEnd(node) {
+    if (this.tail === null) {
+      this.insertBeginning(node)
+    } else {
+      this.insertAfter(this.tail, node)
+    }
+  }
+
+  insertAfter(node, newNode) {
+    newNode.prev = node
+    newNode.next = node.next
+    if (node.next === null) {
+      this.tail = newNode
+    } else {
+      node.next.prev = newNode
+    }
+    node.next = newNode
+    this.length++
+  }
+
+  insertBefore(node, newNode) {
+    newNode.prev = node.prev
+    newNode.next = node
+    if (node.prev === null) {
+      this.head = newNode
+    } else {
+      node.prev.next = newNode
+    }
+    node.prev = newNode
+    this.length++
+  }
+
+  remove(node) {
+    if (node.prev === null) {
+      this.head = node.next
+    } else {
+      node.prev.next = node.next
+    }
+    if (node.next === null) {
+      this.tail = node.prev
+    } else {
+      node.next.prev = node.prev
+    }
+    node.prev = null
+    node.next = null
+    this.length--
+  }
+
+  static createNode(data) {
+    return { prev: null, next: null, data }
+  }
+}
+
+class Queue extends Deque {
+  push(resourceRequest) {
+    const node = DoublyLinkedList.createNode(resourceRequest)
+    resourceRequest.promise.catch(reason => {
+      if (reason.name === 'TimeoutError') {
+        this._list.remove(node)
+      }
+    })
+    this._list.insertEnd(node)
+  }
+}
+
+class PriorityQueue {
+  constructor(size) {
+    this._size = Math.max(+size | 0, 1)
+    this._slots = Array.from({ length: this._size }, () => new Queue())
+  }
+
+  get length() {
+    return this._slots.reduce((total, slot) => total + slot.length, 0)
+  }
+
+  enqueue(obj, priority) {
+    priority = (priority && +priority | 0) || 0
+    priority = Math.min(Math.max(priority, 0), this._size - 1)
+    this._slots[priority].push(obj)
+  }
+
+  dequeue() {
+    for (let slot of this._slots) {
+      if (slot.length) return slot.shift()
+    }
+    return undefined
+  }
+
+  get head() {
+    for (let slot of this._slots) {
+      if (slot.length > 0) return slot.head
+    }
+    return undefined
+  }
+
+  get tail() {
+    for (let i = this._slots.length - 1; i >= 0; i--) {
+      if (this._slots[i].length > 0) return this._slots[i].tail
+    }
+    return undefined
+  }
+}
+
+class DefaultEvictor {
+  evict(config, pooledResource, availableObjectsCount) {
+    const idleTime = Date.now() - pooledResource.lastIdleTime
+    if (config.softIdleTimeoutMillis > 0 && config.softIdleTimeoutMillis < idleTime && config.min < availableObjectsCount) {
+      return true
+    }
+    return config.idleTimeoutMillis < idleTime
+  }
+}
+
+class PooledResource {
+  constructor(resource) {
+    this.creationTime = Date.now()
+    this.lastReturnTime = null
+    this.lastBorrowTime = null
+    this.lastIdleTime = null
+    this.obj = resource
+    this.state = PooledResourceStateEnum.IDLE
+  }
+
+  allocate() {
+    this.lastBorrowTime = Date.now()
+    this.state = PooledResourceStateEnum.ALLOCATED
+  }
+
+  deallocate() {
+    this.lastReturnTime = Date.now()
+    this.state = PooledResourceStateEnum.IDLE
+  }
+
+  invalidate() {
+    this.state = PooledResourceStateEnum.INVALID
+  }
+
+  test() {
+    this.state = PooledResourceStateEnum.VALIDATION
+  }
+
+  idle() {
+    this.lastIdleTime = Date.now()
+    this.state = PooledResourceStateEnum.IDLE
+  }
+
+  returning() {
+    this.state = PooledResourceStateEnum.RETURNING
+  }
+}
+
+class Deferred {
+  constructor(Promise) {
+    this._state = Deferred.PENDING
+    this._resolve = undefined
+    this._reject = undefined
+
+    this._promise = new Promise((resolve, reject) => {
+      this._resolve = resolve
+      this._reject = reject
+    })
+  }
+
+  get state() {
+    return this._state
+  }
+
+  get promise() {
+    return this._promise
+  }
+
+  reject(reason) {
+    if (this._state !== Deferred.PENDING) return
+    this._state = Deferred.REJECTED
+    this._reject(reason)
+  }
+
+  resolve(value) {
+    if (this._state !== Deferred.PENDING) return
+    this._state = Deferred.FULFILLED
+    this._resolve(value)
+  }
+}
+
+Deferred.PENDING = 'PENDING'
+Deferred.FULFILLED = 'FULFILLED'
+Deferred.REJECTED = 'REJECTED'
+
+class ResourceLoan extends Deferred {
+  constructor(pooledResource, Promise) {
+    super(Promise)
+    this._creationTimestamp = Date.now()
+    this.pooledResource = pooledResource
+  }
+
+  reject() { /** Loans can only be resolved at the moment */ }
+}
+
+class ResourceRequest extends Deferred {
+  constructor(ttl, Promise) {
+    super(Promise)
+    this._creationTimestamp = Date.now()
+    this._timeout = null
+    if (ttl !== undefined) this.setTimeout(ttl)
+  }
+
+  setTimeout(delay) {
+    if (this._state !== ResourceRequest.PENDING) return
+    const ttl = parseInt(delay, 10)
+    if (isNaN(ttl) || ttl <= 0) throw new Error('delay must be a positive int')
+    const age = Date.now() - this._creationTimestamp
+    if (this._timeout) this.removeTimeout()
+    this._timeout = setTimeout(() => this._fireTimeout(), Math.max(ttl - age, 0))
+  }
+
+  removeTimeout() {
+    if (this._timeout) clearTimeout(this._timeout)
+    this._timeout = null
+  }
+
+  _fireTimeout() {
+    this.reject(new TimeoutError('ResourceRequest timed out'))
+  }
+
+  reject(reason) {
+    this.removeTimeout()
+    super.reject(reason)
+  }
+
+  resolve(value) {
+    this.removeTimeout()
+    super.resolve(value)
+  }
+}
+
+class TimeoutError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = this.constructor.name
+    if (typeof Error.captureStackTrace === 'function') {
+      Error.captureStackTrace(this, this.constructor)
+    } else {
+      this.stack = new Error(message).stack
+    }
+  }
+}
+
 class Pool extends EventEmitter {
   constructor(factory, options = {}) {
     super()
@@ -297,23 +561,23 @@ class Pool extends EventEmitter {
 
   __allResourceRequestsSettled() {
     if (this._waitingClientsQueue.length > 0) {
-      return reflector(this._waitingClientsQueue.tail.promise)
+      return this._waitingClientsQueue.tail.promise
     }
     return Promise.resolve()
   }
 
   __allResourcesReturned() {
-    const ps = Array.from(this._resourceLoans.values()).map(loan => loan.promise).map(reflector)
+    const ps = Array.from(this._resourceLoans.values()).map(loan => loan.promise)
     return Promise.all(ps)
   }
 
   clear() {
-    const reflectedCreatePromises = Array.from(this._factoryCreateOperations).map(reflector)
+    const reflectedCreatePromises = Array.from(this._factoryCreateOperations)
     return Promise.all(reflectedCreatePromises).then(() => {
       for (const resource of this._availableObjects) {
         this._destroy(resource)
       }
-      const reflectedDestroyPromises = Array.from(this._factoryDestroyOperations).map(reflector)
+      const reflectedDestroyPromises = Array.from(this._factoryDestroyOperations)
       return Promise.all(reflectedDestroyPromises)
     })
   }
@@ -362,286 +626,6 @@ class Pool extends EventEmitter {
 
   get min() {
     return this.options.min
-  }
-}
-
-class PriorityQueue {
-  constructor(size) {
-    this._size = Math.max(+size | 0, 1)
-    this._slots = Array.from({ length: this._size }, () => new Queue())
-  }
-
-  get length() {
-    return this._slots.reduce((total, slot) => total += slot.length, 0)
-  }
-
-  enqueue(obj, priority) {
-    priority = (priority && +priority | 0) || 0
-    priority = Math.min(Math.max(priority, 0), this._size - 1)
-    this._slots[priority].push(obj)
-  }
-
-  dequeue() {
-    for (let slot of this._slots) {
-      if (slot.length) return slot.shift()
-    }
-    return undefined
-  }
-
-  get head() {
-    for (let slot of this._slots) {
-      if (slot.length > 0) return slot.head
-    }
-    return undefined
-  }
-
-  get tail() {
-    for (let i = this._slots.length - 1; i >= 0; i--) {
-      if (this._slots[i].length > 0) return this._slots[i].tail
-    }
-    return undefined
-  }
-}
-
-class Queue extends Deque {
-  push(resourceRequest) {
-    const node = DoublyLinkedList.createNode(resourceRequest)
-    resourceRequest.promise.catch(this._createTimeoutRejectionHandler(node))
-    this._list.insertEnd(node)
-  }
-
-  _createTimeoutRejectionHandler(node) {
-    return reason => {
-      if (reason.name === 'TimeoutError') {
-        this._list.remove(node)
-      }
-    }
-  }
-}
-
-class DefaultEvictor {
-  evict(config, pooledResource, availableObjectsCount) {
-    const idleTime = Date.now() - pooledResource.lastIdleTime
-    if (config.softIdleTimeoutMillis > 0 && config.softIdleTimeoutMillis < idleTime && config.min < availableObjectsCount) {
-      return true
-    }
-    return config.idleTimeoutMillis < idleTime
-  }
-}
-
-class PooledResource {
-  constructor(resource) {
-    this.creationTime = Date.now()
-    this.lastReturnTime = null
-    this.lastBorrowTime = null
-    this.lastIdleTime = null
-    this.obj = resource
-    this.state = PooledResourceStateEnum.IDLE
-  }
-
-  allocate() {
-    this.lastBorrowTime = Date.now()
-    this.state = PooledResourceStateEnum.ALLOCATED
-  }
-
-  deallocate() {
-    this.lastReturnTime = Date.now()
-    this.state = PooledResourceStateEnum.IDLE
-  }
-
-  invalidate() {
-    this.state = PooledResourceStateEnum.INVALID
-  }
-
-  test() {
-    this.state = PooledResourceStateEnum.VALIDATION
-  }
-
-  idle() {
-    this.lastIdleTime = Date.now()
-    this.state = PooledResourceStateEnum.IDLE
-  }
-
-  returning() {
-    this.state = PooledResourceStateEnum.RETURNING
-  }
-}
-
-class Deferred {
-  constructor(Promise) {
-    this._state = Deferred.PENDING
-    this._resolve = undefined
-    this._reject = undefined
-
-    this._promise = new Promise((resolve, reject) => {
-      this._resolve = resolve
-      this._reject = reject
-    })
-  }
-
-  get state() {
-    return this._state
-  }
-
-  get promise() {
-    return this._promise
-  }
-
-  reject(reason) {
-    if (this._state !== Deferred.PENDING) return
-    this._state = Deferred.REJECTED
-    this._reject(reason)
-  }
-
-  resolve(value) {
-    if (this._state !== Deferred.PENDING) return
-    this._state = Deferred.FULFILLED
-    this._resolve(value)
-  }
-}
-
-Deferred.PENDING = 'PENDING'
-Deferred.FULFILLED = 'FULFILLED'
-Deferred.REJECTED = 'REJECTED'
-
-class ResourceLoan extends Deferred {
-  constructor(pooledResource, Promise) {
-    super(Promise)
-    this._creationTimestamp = Date.now()
-    this.pooledResource = pooledResource
-  }
-
-  reject() { /** Loans can only be resolved at the moment */ }
-}
-
-class ResourceRequest extends Deferred {
-  constructor(ttl, Promise) {
-    super(Promise)
-    this._creationTimestamp = Date.now()
-    this._timeout = null
-    if (ttl !== undefined) this.setTimeout(ttl)
-  }
-
-  setTimeout(delay) {
-    if (this._state !== ResourceRequest.PENDING) return
-    const ttl = parseInt(delay, 10)
-    if (isNaN(ttl) || ttl <= 0) throw new Error('delay must be a positive int')
-    const age = Date.now() - this._creationTimestamp
-    if (this._timeout) this.removeTimeout()
-    this._timeout = setTimeout(fbind(this._fireTimeout, this), Math.max(ttl - age, 0))
-  }
-
-  removeTimeout() {
-    if (this._timeout) clearTimeout(this._timeout)
-    this._timeout = null
-  }
-
-  _fireTimeout() {
-    this.reject(new TimeoutError('ResourceRequest timed out'))
-  }
-
-  reject(reason) {
-    this.removeTimeout()
-    super.reject(reason)
-  }
-
-  resolve(value) {
-    this.removeTimeout()
-    super.resolve(value)
-  }
-}
-
-class TimeoutError extends Error {
-  constructor(message) {
-    super(message)
-    this.name = this.constructor.name
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, this.constructor)
-    } else {
-      this.stack = new Error(message).stack
-    }
-  }
-}
-
-function fbind(fn, ctx) {
-  return function bound() {
-    return fn.apply(ctx, arguments)
-  }
-}
-
-function noop() {}
-
-const reflector = function(promise) {
-  return promise.then(noop, noop)
-}
-
-class DoublyLinkedList {
-  constructor() {
-    this.head = null
-    this.tail = null
-    this.length = 0
-  }
-
-  insertBeginning(node) {
-    if (this.head === null) {
-      this.head = node
-      this.tail = node
-    } else {
-      this.insertBefore(this.head, node)
-    }
-    this.length++
-  }
-
-  insertEnd(node) {
-    if (this.tail === null) {
-      this.insertBeginning(node)
-    } else {
-      this.insertAfter(this.tail, node)
-    }
-  }
-
-  insertAfter(node, newNode) {
-    newNode.prev = node
-    newNode.next = node.next
-    if (node.next === null) {
-      this.tail = newNode
-    } else {
-      node.next.prev = newNode
-    }
-    node.next = newNode
-    this.length++
-  }
-
-  insertBefore(node, newNode) {
-    newNode.prev = node.prev
-    newNode.next = node
-    if (node.prev === null) {
-      this.head = newNode
-    } else {
-      node.prev.next = newNode
-    }
-    node.prev = newNode
-    this.length++
-  }
-
-  remove(node) {
-    if (node.prev === null) {
-      this.head = node.next
-    } else {
-      node.prev.next = node.next
-    }
-    if (node.next === null) {
-      this.tail = node.prev
-    } else {
-      node.next.prev = node.prev
-    }
-    node.prev = null
-    node.next = null
-    this.length--
-  }
-
-  static createNode(data) {
-    return { prev: null, next: null, data }
   }
 }
 

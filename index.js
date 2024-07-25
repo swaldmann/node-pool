@@ -1,11 +1,11 @@
-const EventEmitter = require("events").EventEmitter
+const EventEmitter = require('events').EventEmitter
 
 const PooledResourceStateEnum = {
-  ALLOCATED: "ALLOCATED", // In use
-  IDLE: "IDLE", // In the queue, not in use.
-  INVALID: "INVALID", // Failed validation
-  RETURNING: "RETURNING", // Resource is in process of returning
-  VALIDATION: "VALIDATION" // Currently being tested
+  ALLOCATED: 'ALLOCATED', // In use
+  IDLE: 'IDLE', // In the queue, not in use.
+  INVALID: 'INVALID', // Failed validation
+  RETURNING: 'RETURNING', // Resource is in process of returning
+  VALIDATION: 'VALIDATION' // Currently being tested
 }
 class Deque {
   constructor() {
@@ -78,8 +78,8 @@ class Deque {
 class DoublyLinkedListIterator {
   constructor(doublyLinkedList, reverse) {
     this._list = doublyLinkedList
-    this._direction = reverse === true ? "prev" : "next"
-    this._startPosition = reverse === true ? "tail" : "head"
+    this._direction = reverse === true ? 'prev' : 'next'
+    this._startPosition = reverse === true ? 'tail' : 'head'
     this._started = false
     this._cursor = null
     this._done = false
@@ -279,16 +279,16 @@ class DoublyLinkedList {
 }
 
 const factoryValidator = function(factory) {
-  if (typeof factory.create !== "function") {
-    throw new TypeError("factory.create must be a function")
+  if (typeof factory.create !== 'function') {
+    throw new TypeError('factory.create must be a function')
   }
 
-  if (typeof factory.destroy !== "function") {
-    throw new TypeError("factory.destroy must be a function")
+  if (typeof factory.destroy !== 'function') {
+    throw new TypeError('factory.destroy must be a function')
   }
 
-  if (typeof factory.validate !== "undefined" && typeof factory.validate !== "function") {
-    throw new TypeError("factory.validate must be a function")
+  if (typeof factory.validate !== 'undefined' && typeof factory.validate !== 'function') {
+    throw new TypeError('factory.validate must be a function')
   }
 }
 class DefaultEvictor {
@@ -364,16 +364,16 @@ class Deferred {
 }
 
 // TODO: should these really live here? or be a seperate 'state' enum
-Deferred.PENDING = "PENDING"
-Deferred.FULFILLED = "FULFILLED"
-Deferred.REJECTED = "REJECTED"
+Deferred.PENDING = 'PENDING'
+Deferred.FULFILLED = 'FULFILLED'
+Deferred.REJECTED = 'REJECTED'
 
 class TimeoutError extends Error {
   constructor(message) {
     super(message)
     this.name = this.constructor.name
     this.message = message
-    if (typeof Error.captureStackTrace === "function") {
+    if (typeof Error.captureStackTrace === 'function') {
       Error.captureStackTrace(this, this.constructor)
     } else {
       this.stack = new Error(message).stack
@@ -405,7 +405,7 @@ class ResourceRequest extends Deferred {
     const ttl = parseInt(delay, 10)
 
     if (isNaN(ttl) || ttl <= 0) {
-      throw new Error("delay must be a positive int")
+      throw new Error('delay must be a positive int')
     }
 
     const age = Date.now() - this._creationTimestamp
@@ -428,7 +428,7 @@ class ResourceRequest extends Deferred {
   }
 
   _fireTimeout() {
-    this.reject(new TimeoutError("ResourceRequest timed out"))
+    this.reject(new TimeoutError('ResourceRequest timed out'))
   }
 
   reject(reason) {
@@ -451,7 +451,7 @@ class Queue extends Deque {
 
   _createTimeoutRejectionHandler(node) {
     return reason => {
-      if (reason.name === "TimeoutError") {
+      if (reason.name === 'TimeoutError') {
         this._list.remove(node)
       }
     }
@@ -517,11 +517,11 @@ class PoolOptions {
   constructor(opts) {
     const poolDefaults = new PoolDefaults()
     opts = opts || {}
-    this.fifo = typeof opts.fifo === "boolean" ? opts.fifo : poolDefaults.fifo
+    this.fifo = typeof opts.fifo === 'boolean' ? opts.fifo : poolDefaults.fifo
     this.priorityRange = opts.priorityRange || poolDefaults.priorityRange
-    this.testOnBorrow = typeof opts.testOnBorrow === "boolean" ? opts.testOnBorrow : poolDefaults.testOnBorrow
-    this.testOnReturn = typeof opts.testOnReturn === "boolean" ? opts.testOnReturn : poolDefaults.testOnReturn
-    this.autostart = typeof opts.autostart === "boolean" ? opts.autostart : poolDefaults.autostart
+    this.testOnBorrow = typeof opts.testOnBorrow === 'boolean' ? opts.testOnBorrow : poolDefaults.testOnBorrow
+    this.testOnReturn = typeof opts.testOnReturn === 'boolean' ? opts.testOnReturn : poolDefaults.testOnReturn
+    this.autostart = typeof opts.autostart === 'boolean' ? opts.autostart : poolDefaults.autostart
     if (opts.acquireTimeoutMillis) this.acquireTimeoutMillis = parseInt(opts.acquireTimeoutMillis, 10)
     if (opts.destroyTimeoutMillis) this.destroyTimeoutMillis = parseInt(opts.destroyTimeoutMillis, 10)
     if (opts.maxWaitingClients !== undefined) this.maxWaitingClients = parseInt(opts.maxWaitingClients, 10)
@@ -537,8 +537,8 @@ class PoolOptions {
   }
 }
 
-const FACTORY_CREATE_ERROR = "factoryCreateError"
-const FACTORY_DESTROY_ERROR = "factoryDestroyError"
+const FACTORY_CREATE_ERROR = 'factoryCreateError'
+const FACTORY_DESTROY_ERROR = 'factoryDestroyError'
 
 class Pool extends EventEmitter {
   constructor(Evictor, Deque, PriorityQueue, factory, options) {
@@ -567,7 +567,7 @@ class Pool extends EventEmitter {
     }
   }
 
-  _destroy(pooledResource) { // FIXME: do we need another state for "in destruction"?
+  _destroy(pooledResource) { // FIXME: do we need another state for 'in destruction'?
     pooledResource.invalidate()
     this._allObjects.delete(pooledResource)
     // NOTE: this maybe very bad promise usage?
@@ -582,7 +582,7 @@ class Pool extends EventEmitter {
   _applyDestroyTimeout(promise) {
     const timeoutPromise = new this._Promise((resolve, reject) => {
       setTimeout(() => {
-        reject(new Error("destroy timed out"))
+        reject(new Error('destroy timed out'))
       }, this._config.destroyTimeoutMillis).unref()
     })
     return this._Promise.race([timeoutPromise, promise])
@@ -782,11 +782,11 @@ class Pool extends EventEmitter {
 
     if (this._draining) {
       return this._Promise.reject(
-        new Error("pool is draining and cannot accept work")
+        new Error('pool is draining and cannot accept work')
       )
     }
 
-    // TODO: should we defer this check till after this event loop incase "the situation" changes in the meantime
+    // TODO: should we defer this check till after this event loop incase 'the situation' changes in the meantime
     if (
       this.spareResourceCapacity < 1 &&
       this._availableObjects.length < 1 &&
@@ -794,7 +794,7 @@ class Pool extends EventEmitter {
       this._waitingClientsQueue.length >= this._config.maxWaitingClients
     ) {
       return this._Promise.reject(
-        new Error("max waitingClients count exceeded")
+        new Error('max waitingClients count exceeded')
       )
     }
 
@@ -830,7 +830,7 @@ class Pool extends EventEmitter {
 
     if (loan === undefined) {
       return this._Promise.reject(
-        new Error("Resource not currently part of this pool")
+        new Error('Resource not currently part of this pool')
       )
     }
 
@@ -848,7 +848,7 @@ class Pool extends EventEmitter {
     const loan = this._resourceLoans.get(resource)
     if (loan === undefined) {
       return this._Promise.reject(
-        new Error("Resource not currently part of this pool")
+        new Error('Resource not currently part of this pool')
       )
     }
 
@@ -884,7 +884,7 @@ class Pool extends EventEmitter {
 
   __allResourceRequestsSettled() {
     if (this._waitingClientsQueue.length > 0) {
-      // FIXME: what if they can "resolve" out of order....?
+      // FIXME: what if they can 'resolve' out of order....?
       return reflector(this._waitingClientsQueue.tail.promise)
     }
     return this._Promise.resolve()

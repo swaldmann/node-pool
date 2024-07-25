@@ -12,10 +12,6 @@ class Deque {
     this._list = new DoublyLinkedList()
   }
 
-  /**
-   * removes and returns the first element from the queue
-   * @return {any} [description]
-   */
   shift() {
     if (this.length === 0) {
       return undefined
@@ -27,39 +23,22 @@ class Deque {
     return node.data
   }
 
-  /**
-   * adds one elemts to the beginning of the queue
-   * @param  {any} element [description]
-   * @return {any}         [description]
-   */
   unshift(element) {
     const node = DoublyLinkedList.createNode(element)
 
     this._list.insertBeginning(node)
   }
 
-  /**
-   * adds one to the end of the queue
-   * @param  {any} element [description]
-   * @return {any}         [description]
-   */
   push(element) {
     const node = DoublyLinkedList.createNode(element)
 
     this._list.insertEnd(node)
   }
 
-  /**
-   * removes and returns the last element from the queue
-   */
   pop() {
-    if (this.length === 0) {
-      return undefined
-    }
-
+    if (this.length === 0) return undefined
     const node = this._list.tail
     this._list.remove(node)
-
     return node.data
   }
 
@@ -75,10 +54,6 @@ class Deque {
     return new DequeIterator(this._list, true)
   }
 
-  /**
-   * get a reference to the item at the head of the queue
-   * @return {any} [description]
-   */
   get head() {
     if (this.length === 0) {
       return undefined
@@ -87,10 +62,6 @@ class Deque {
     return node.data
   }
 
-  /**
-   * get a reference to the item at the tail of the queue
-   * @return {any} [description]
-   */
   get tail() {
     if (this.length === 0) {
       return undefined
@@ -164,15 +135,7 @@ class DoublyLinkedListIterator {
       done: false
     }
   }
-
-  /**
-   * Is the node detached from a list?
-   * NOTE: you can trick/bypass/confuse this check by removing a node from one DoublyLinkedList
-   * and adding it to another.
-   * TODO: We can make this smarter by checking the direction of travel and only checking
-   * the required next/prev/head/tail rather than all of them
-   * @return {Boolean}      [description]
-   */
+  // TODO: We can make this smarter by checking the direction of travel and only checking
   _isCursorDetached() {
     return (
       this._cursor.prev === null &&
@@ -183,27 +146,21 @@ class DoublyLinkedListIterator {
   }
 }
 
-
 class PoolDefaults {
   constructor() {
     this.fifo = true
     this.priorityRange = 1
-
     this.testOnBorrow = false
     this.testOnReturn = false
-
     this.autostart = true
-
     this.evictionRunIntervalMillis = 0
     this.numTestsPerEvictionRun = 3
     this.softIdleTimeoutMillis = -1
     this.idleTimeoutMillis = 30000
-
     // FIXME: no defaults!
     this.acquireTimeoutMillis = null
     this.destroyTimeoutMillis = null
     this.maxWaitingClients = null
-
     this.min = null
     this.max = null
     // FIXME: this seems odd?
@@ -330,41 +287,28 @@ const factoryValidator = function(factory) {
     throw new TypeError("factory.destroy must be a function")
   }
 
-  if (
-    typeof factory.validate !== "undefined" &&
-    typeof factory.validate !== "function"
-  ) {
+  if (typeof factory.validate !== "undefined" && typeof factory.validate !== "function") {
     throw new TypeError("factory.validate must be a function")
   }
 }
 class DefaultEvictor {
   evict(config, pooledResource, availableObjectsCount) {
     const idleTime = Date.now() - pooledResource.lastIdleTime
-
-    if (
-      config.softIdleTimeoutMillis > 0 &&
-      config.softIdleTimeoutMillis < idleTime &&
-      config.min < availableObjectsCount
-    ) {
+    if (config.softIdleTimeoutMillis > 0 && config.softIdleTimeoutMillis < idleTime && config.min < availableObjectsCount) {
       return true
     }
-
     if (config.idleTimeoutMillis < idleTime) {
       return true
     }
-
     return false
   }
 }
 class DequeIterator extends DoublyLinkedListIterator {
   next() {
     const result = super.next()
-
-    // unwrap the node...
     if (result.value) {
       result.value = result.value.data
     }
-
     return result
   }
 }
@@ -379,7 +323,6 @@ class ResourceLoan extends Deferred {
     this._creationTimestamp = Date.now()
     this.pooledResource = pooledResource
   }
-
   reject() { /** Loans can only be resolved at the moment */ }
 }
 
@@ -425,7 +368,6 @@ Deferred.PENDING = "PENDING"
 Deferred.FULFILLED = "FULFILLED"
 Deferred.REJECTED = "REJECTED"
 
-
 class TimeoutError extends Error {
   constructor(message) {
     super(message)
@@ -445,16 +387,7 @@ function fbind(fn, ctx) {
   }
 }
 
-/**
- * Wraps a users request for a resource
- * Basically a promise mashed in with a timeout
- * @private
- */
 class ResourceRequest extends Deferred {
-  /**
-   * [constructor description]
-   * @param  {Number} ttl     timeout
-   */
   constructor(ttl, Promise) {
     super(Promise)
     this._creationTimestamp = Date.now()
@@ -509,13 +442,6 @@ class ResourceRequest extends Deferred {
   }
 }
 
-/**
- * Sort of a internal queue for holding the waiting
- * resource requets for a given "priority".
- * Also handles managing timeouts rejections on items (is this the best place for this?)
- * This is the last point where we know which queue a resourceRequest is in
- *
- */
 class Queue extends Deque {
   push(resourceRequest) {
     const node = DoublyLinkedList.createNode(resourceRequest)
@@ -535,37 +461,32 @@ class Queue extends Deque {
 class PriorityQueue {
   constructor(size) {
     this._size = Math.max(+size | 0, 1)
-    /** @type {Queue[]} */
     this._slots = []
-    // initialize arrays to hold queue elements
-    for (let i = 0 i < this._size i++) {
+    for (let i = 0; i < this._size; i++) {
       this._slots.push(new Queue())
     }
   }
 
   get length() {
     let _length = 0
-    for (let i = 0, slots = this._slots.length i < slots i++) {
+    for (let i = 0, slots = this._slots.length; i < slots; i++) {
       _length += this._slots[i].length
     }
     return _length
   }
 
   enqueue(obj, priority) {
-    // Convert to integer with a default value of 0.
     priority = (priority && +priority | 0) || 0
-
     if (priority) {
       if (priority < 0 || priority >= this._size) {
         priority = this._size - 1
-        // put obj at the end of the line
       }
     }
     this._slots[priority].push(obj)
   }
 
   dequeue() {
-    for (let i = 0, sl = this._slots.length i < sl i += 1) {
+    for (let i = 0, sl = this._slots.length; i < sl; i += 1) {
       if (this._slots[i].length) {
         return this._slots[i].shift()
       }
@@ -574,7 +495,7 @@ class PriorityQueue {
   }
 
   get head() {
-    for (let i = 0, sl = this._slots.length i < sl i += 1) {
+    for (let i = 0, sl = this._slots.length; i < sl; i += 1) {
       if (this._slots[i].length > 0) {
         return this._slots[i].head
       }
@@ -583,7 +504,7 @@ class PriorityQueue {
   }
 
   get tail() {
-    for (let i = this._slots.length - 1 i >= 0 i--) {
+    for (let i = this._slots.length - 1; i >= 0; i--) {
       if (this._slots[i].length > 0) {
         return this._slots[i].tail
       }
@@ -593,99 +514,25 @@ class PriorityQueue {
 }
 
 class PoolOptions {
-  /**
-   * @param {Object} opts
-   *   configuration for the pool
-   * @param {Number} [opts.max=null]
-   *   Maximum number of items that can exist at the same time.  Default: 1.
-   *   Any further acquire requests will be pushed to the waiting list.
-   * @param {Number} [opts.min=null]
-   *   Minimum number of items in pool (including in-use). Default: 0.
-   *   When the pool is created, or a resource destroyed, this minimum will
-   *   be checked. If the pool resource count is below the minimum, a new
-   *   resource will be created and added to the pool.
-   * @param {Number} [opts.maxWaitingClients=null]
-   *   maximum number of queued requests allowed after which acquire calls will be rejected
-   * @param {Boolean} [opts.testOnBorrow=false]
-   *   should the pool validate resources before giving them to clients. Requires that
-   *   `factory.validate` is specified.
-   * @param {Boolean} [opts.testOnReturn=false]
-   *   should the pool validate resources before returning them to the pool.
-   * @param {Number} [opts.acquireTimeoutMillis=null]
-   *   Delay in milliseconds after which the an `acquire` call will fail. optional.
-   *   Default: undefined. Should be positive and non-zero
-   * @param {Number} [opts.destroyTimeoutMillis=null]
-   *   Delay in milliseconds after which the an `destroy` call will fail, causing it to emit a factoryDestroyError event. optional.
-   *   Default: undefined. Should be positive and non-zero
-   * @param {Number} [opts.priorityRange=1]
-   *   The range from 1 to be treated as a valid priority
-   * @param {Boolean} [opts.fifo=true]
-   *   Sets whether the pool has LIFO (last in, first out) behaviour with respect to idle objects.
-   *   if false then pool has FIFO behaviour
-   * @param {Boolean} [opts.autostart=true]
-   *   Should the pool start creating resources etc once the constructor is called
-   * @param {Number} [opts.evictionRunIntervalMillis=0]
-   *   How often to run eviction checks.  Default: 0 (does not run).
-   * @param {Number} [opts.numTestsPerEvictionRun=3]
-   *   Number of resources to check each eviction run.  Default: 3.
-   * @param {Number} [opts.softIdleTimeoutMillis=-1]
-   *   amount of time an object may sit idle in the pool before it is eligible
-   *   for eviction by the idle object evictor (if any), with the extra condition
-   *   that at least "min idle" object instances remain in the pool. Default -1 (nothing can get evicted)
-   * @param {Number} [opts.idleTimeoutMillis=30000]
-   *   the minimum amount of time that an object may sit idle in the pool before it is eligible for eviction
-   *   due to idle time. Supercedes "softIdleTimeoutMillis" Default: 30000
-   * @param {typeof Promise} [opts.Promise=Promise]
-   *   What promise implementation should the pool use, defaults to native promises.
-   */
   constructor(opts) {
     const poolDefaults = new PoolDefaults()
-
     opts = opts || {}
-
     this.fifo = typeof opts.fifo === "boolean" ? opts.fifo : poolDefaults.fifo
     this.priorityRange = opts.priorityRange || poolDefaults.priorityRange
-
-    this.testOnBorrow =
-      typeof opts.testOnBorrow === "boolean"
-        ? opts.testOnBorrow
-        : poolDefaults.testOnBorrow
-    this.testOnReturn =
-      typeof opts.testOnReturn === "boolean"
-        ? opts.testOnReturn
-        : poolDefaults.testOnReturn
-
-    this.autostart =
-      typeof opts.autostart === "boolean"
-        ? opts.autostart
-        : poolDefaults.autostart
-
-    if (opts.acquireTimeoutMillis) {
-      // @ts-ignore
-      this.acquireTimeoutMillis = parseInt(opts.acquireTimeoutMillis, 10)
-    }
-
-    if (opts.destroyTimeoutMillis) {
-      this.destroyTimeoutMillis = parseInt(opts.destroyTimeoutMillis, 10)
-    }
-
-    if (opts.maxWaitingClients !== undefined) {
-      this.maxWaitingClients = parseInt(opts.maxWaitingClients, 10)
-    }
+    this.testOnBorrow = typeof opts.testOnBorrow === "boolean" ? opts.testOnBorrow : poolDefaults.testOnBorrow
+    this.testOnReturn = typeof opts.testOnReturn === "boolean" ? opts.testOnReturn : poolDefaults.testOnReturn
+    this.autostart = typeof opts.autostart === "boolean" ? opts.autostart : poolDefaults.autostart
+    if (opts.acquireTimeoutMillis) this.acquireTimeoutMillis = parseInt(opts.acquireTimeoutMillis, 10)
+    if (opts.destroyTimeoutMillis) this.destroyTimeoutMillis = parseInt(opts.destroyTimeoutMillis, 10)
+    if (opts.maxWaitingClients !== undefined) this.maxWaitingClients = parseInt(opts.maxWaitingClients, 10)
     this.max = parseInt(opts.max, 10)
     this.min = parseInt(opts.min, 10)
     this.max = Math.max(isNaN(this.max) ? 1 : this.max, 1)
     this.min = Math.min(isNaN(this.min) ? 0 : this.min, this.max)
-
-    this.evictionRunIntervalMillis =
-      opts.evictionRunIntervalMillis || poolDefaults.evictionRunIntervalMillis
-    this.numTestsPerEvictionRun =
-      opts.numTestsPerEvictionRun || poolDefaults.numTestsPerEvictionRun
-    this.softIdleTimeoutMillis =
-      opts.softIdleTimeoutMillis || poolDefaults.softIdleTimeoutMillis
-    this.idleTimeoutMillis =
-      opts.idleTimeoutMillis || poolDefaults.idleTimeoutMillis
-
+    this.evictionRunIntervalMillis = opts.evictionRunIntervalMillis || poolDefaults.evictionRunIntervalMillis
+    this.numTestsPerEvictionRun = opts.numTestsPerEvictionRun || poolDefaults.numTestsPerEvictionRun
+    this.softIdleTimeoutMillis = opts.softIdleTimeoutMillis || poolDefaults.softIdleTimeoutMillis
+    this.idleTimeoutMillis = opts.idleTimeoutMillis || poolDefaults.idleTimeoutMillis
     this.Promise = opts.Promise != null ? opts.Promise : poolDefaults.Promise
   }
 }
@@ -720,8 +567,7 @@ class Pool extends EventEmitter {
     }
   }
 
-  _destroy(pooledResource) {
-    // FIXME: do we need another state for "in destruction"?
+  _destroy(pooledResource) { // FIXME: do we need another state for "in destruction"?
     pooledResource.invalidate()
     this._allObjects.delete(pooledResource)
     // NOTE: this maybe very bad promise usage?
@@ -730,14 +576,8 @@ class Pool extends EventEmitter {
       ? this._Promise.resolve(this._applyDestroyTimeout(destroyPromise))
       : this._Promise.resolve(destroyPromise)
 
-    this._trackOperation(
-      wrappedDestroyPromise,
-      this._factoryDestroyOperations
-    ).catch(reason => {
-      this.emit(FACTORY_DESTROY_ERROR, reason)
-    })
-    // TODO: maybe ensuring minimum pool size should live outside here
-    this._ensureMinimum()
+    this._trackOperation(wrappedDestroyPromise, this._factoryDestroyOperations).catch(reason => { this.emit(FACTORY_DESTROY_ERROR, reason) })
+    this._ensureMinimum() // TODO: maybe ensuring minimum pool size should live outside here
   }
   _applyDestroyTimeout(promise) {
     const timeoutPromise = new this._Promise((resolve, reject) => {
@@ -753,7 +593,6 @@ class Pool extends EventEmitter {
     }
 
     const pooledResource = this._availableObjects.shift()
-    // Mark the resource as in test
     pooledResource.test()
     this._testOnBorrowResources.add(pooledResource)
     const validationPromise = this._factory.validate(pooledResource.obj)
@@ -786,61 +625,31 @@ class Pool extends EventEmitter {
     return false
   }
   _dispense() {
-    /**
-     * Local variables for ease of reading/writing
-     * these don't (shouldn't) change across the execution of this fn
-     */
     const numWaitingClients = this._waitingClientsQueue.length
-
-    // If there aren't any waiting requests then there is nothing to do
-    // so lets short-circuit
-    if (numWaitingClients < 1) {
-      return
-    }
-
-    const resourceShortfall =
-      numWaitingClients - this._potentiallyAllocableResourceCount
-
-    const actualNumberOfResourcesToCreate = Math.min(
-      this.spareResourceCapacity,
-      resourceShortfall
-    )
-    for (let i = 0 actualNumberOfResourcesToCreate > i i++) {
+    if (numWaitingClients < 1) return
+    const resourceShortfall = numWaitingClients - this._potentiallyAllocableResourceCount
+    const actualNumberOfResourcesToCreate = Math.min( this.spareResourceCapacity, resourceShortfall)
+    for (let i = 0; actualNumberOfResourcesToCreate > i; i++) {
       this._createResource()
     }
-
-    // If we are doing test-on-borrow see how many more resources need to be moved into test
-    // to help satisfy waitingClients
     if (this._config.testOnBorrow === true) {
-      // how many available resources do we need to shift into test
-      const desiredNumberOfResourcesToMoveIntoTest =
-        numWaitingClients - this._testOnBorrowResources.size
-      const actualNumberOfResourcesToMoveIntoTest = Math.min(
-        this._availableObjects.length,
-        desiredNumberOfResourcesToMoveIntoTest
-      )
-      for (let i = 0 actualNumberOfResourcesToMoveIntoTest > i i++) {
+      const desiredNumberOfResourcesToMoveIntoTest = numWaitingClients - this._testOnBorrowResources.size
+      const actualNumberOfResourcesToMoveIntoTest = Math.min(this._availableObjects.length, desiredNumberOfResourcesToMoveIntoTest)
+      for (let i = 0; actualNumberOfResourcesToMoveIntoTest > i; i++) {
         this._testOnBorrow()
       }
     }
-
     // if we aren't testing-on-borrow then lets try to allocate what we can
     if (this._config.testOnBorrow === false) {
-      const actualNumberOfResourcesToDispatch = Math.min(
-        this._availableObjects.length,
-        numWaitingClients
-      )
-      for (let i = 0 actualNumberOfResourcesToDispatch > i i++) {
+      const actualNumberOfResourcesToDispatch = Math.min(this._availableObjects.length, numWaitingClients)
+      for (let i = 0; actualNumberOfResourcesToDispatch > i; i++) {
         this._dispatchResource()
       }
     }
   }
   _dispatchPooledResourceToNextWaitingClient(pooledResource) {
     const clientResourceRequest = this._waitingClientsQueue.dequeue()
-    if (
-      clientResourceRequest === undefined ||
-      clientResourceRequest.state !== Deferred.PENDING
-    ) {
+    if (clientResourceRequest === undefined || clientResourceRequest.state !== Deferred.PENDING) {
       this._addPooledResourceToAvailableObjects(pooledResource)
       // TODO: do need to trigger anything before we leave?
       return false
@@ -853,7 +662,6 @@ class Pool extends EventEmitter {
   }
   _trackOperation(operation, set) {
     set.add(operation)
-
     return operation.then(
       v => {
         set.delete(operation)
@@ -866,7 +674,6 @@ class Pool extends EventEmitter {
     )
   }
   _createResource() {
-    // An attempt to create a resource
     const factoryPromise = this._factory.create()
     const wrappedFactoryPromise = this._Promise
       .resolve(factoryPromise)
@@ -879,9 +686,6 @@ class Pool extends EventEmitter {
     this._trackOperation(wrappedFactoryPromise, this._factoryCreateOperations)
       .then(() => {
         this._dispense()
-        // Stop bluebird complaining about this side-effect only handler
-        // - a promise was created in a handler but was not returned from it
-        // https://goo.gl/rRqMUw
         return null
       })
       .catch(reason => {
@@ -894,7 +698,7 @@ class Pool extends EventEmitter {
       return
     }
     const minShortfall = this._config.min - this._count
-    for (let i = 0 i < minShortfall i++) {
+    for (let i = 0; i < minShortfall; i++) {
       this._createResource()
     }
   }
@@ -909,7 +713,7 @@ class Pool extends EventEmitter {
       idleTimeoutMillis: this._config.idleTimeoutMillis,
       min: this._config.min
     }
-    for (let testsHaveRun = 0 testsHaveRun < testsToRun ) {
+    for (let testsHaveRun = 0; testsHaveRun < testsToRun; ) {
       const iterationResult = this._evictionIterator.next()
 
       // Safety check incase we could get stuck in infinite loop because we
@@ -971,11 +775,6 @@ class Pool extends EventEmitter {
     this._scheduleEvictorRun()
     this._ensureMinimum()
   }
-  /**
-   * Request a new resource. The callback will be called,
-   * when a new resource is available, passing the resource to the callback.
-   * TODO: should we add a seperate "acquireWithPriority" function?
-   */
   acquire(priority) {
     if (this._started === false && this._config.autostart === false) {
       this.start()
@@ -1046,9 +845,7 @@ class Pool extends EventEmitter {
     return this._Promise.resolve()
   }
   destroy(resource) {
-    // check for an outstanding loan
     const loan = this._resourceLoans.get(resource)
-
     if (loan === undefined) {
       return this._Promise.reject(
         new Error("Resource not currently part of this pool")
@@ -1087,7 +884,6 @@ class Pool extends EventEmitter {
 
   __allResourceRequestsSettled() {
     if (this._waitingClientsQueue.length > 0) {
-      // wait for last waiting client to be settled
       // FIXME: what if they can "resolve" out of order....?
       return reflector(this._waitingClientsQueue.tail.promise)
     }
@@ -1096,26 +892,16 @@ class Pool extends EventEmitter {
 
   // FIXME: this is a horrific mess
   __allResourcesReturned() {
-    const ps = Array.from(this._resourceLoans.values())
-      .map(loan => loan.promise)
-      .map(reflector)
+    const ps = Array.from(this._resourceLoans.values()).map(loan => loan.promise).map(reflector)
     return this._Promise.all(ps)
   }
   clear() {
-    const reflectedCreatePromises = Array.from(
-      this._factoryCreateOperations
-    ).map(reflector)
-
-    // wait for outstanding factory.create to complete
+    const reflectedCreatePromises = Array.from(this._factoryCreateOperations).map(reflector)
     return this._Promise.all(reflectedCreatePromises).then(() => {
-      // Destroy existing resources
-      // @ts-ignore
       for (const resource of this._availableObjects) {
         this._destroy(resource)
       }
-      const reflectedDestroyPromises = Array.from(
-        this._factoryDestroyOperations
-      ).map(reflector)
+      const reflectedDestroyPromises = Array.from(this._factoryDestroyOperations).map(reflector)
       return reflector(this._Promise.all(reflectedDestroyPromises))
     })
   }
@@ -1128,26 +914,17 @@ class Pool extends EventEmitter {
           setTimeout(isReady, 100)
         }
       }
-
       isReady()
     })
   }
   get _potentiallyAllocableResourceCount() {
-    return (
-      this._availableObjects.length +
-      this._testOnBorrowResources.size +
-      this._testOnReturnResources.size +
-      this._factoryCreateOperations.size
-    )
+    return (this._availableObjects.length + this._testOnBorrowResources.size + this._testOnReturnResources.size + this._factoryCreateOperations.size)
   }
   get _count() {
     return this._allObjects.size + this._factoryCreateOperations.size
   }
   get spareResourceCapacity() {
-    return (
-      this._config.max -
-      (this._allObjects.size + this._factoryCreateOperations.size)
-    )
+    return (this._config.max - (this._allObjects.size + this._factoryCreateOperations.size))
   }
   get size() {
     return this._count

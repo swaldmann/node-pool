@@ -215,7 +215,7 @@ class PooledResource {
 }
 
 class Deferred {
-  constructor(Promise) {
+  constructor() {
     this._state = Deferred.PENDING
     this._resolve = undefined
     this._reject = undefined
@@ -252,8 +252,8 @@ Deferred.FULFILLED = 'FULFILLED'
 Deferred.REJECTED = 'REJECTED'
 
 class ResourceLoan extends Deferred {
-  constructor(pooledResource, Promise) {
-    super(Promise)
+  constructor(pooledResource) {
+    super()
     this._creationTimestamp = Date.now()
     this.pooledResource = pooledResource
   }
@@ -262,8 +262,8 @@ class ResourceLoan extends Deferred {
 }
 
 class ResourceRequest extends Deferred {
-  constructor(ttl, Promise) {
-    super(Promise)
+  constructor(ttl) {
+    super()
     this._creationTimestamp = Date.now()
     this._timeout = null
     if (ttl !== undefined) this.setTimeout(ttl)
@@ -329,7 +329,6 @@ class Pool extends EventEmitter {
       maxWaitingClients: null,
       min: 0,
       max: 10,
-      Promise: Promise,
       ...options
     }
     this._draining = false
@@ -392,7 +391,7 @@ class Pool extends EventEmitter {
       this._addPooledResourceToAvailableObjects(pooledResource)
       return false
     }
-    const loan = new ResourceLoan(pooledResource, this.options.Promise)
+    const loan = new ResourceLoan(pooledResource)
     this._resourceLoans.set(pooledResource.obj, loan)
     pooledResource.allocate()
     clientResourceRequest.resolve(pooledResource.obj)
@@ -507,7 +506,7 @@ class Pool extends EventEmitter {
     ) {
       return Promise.reject(new Error('max waitingClients count exceeded'))
     }
-    const resourceRequest = new ResourceRequest(this.options.acquireTimeoutMillis, this.options.Promise)
+    const resourceRequest = new ResourceRequest(this.options.acquireTimeoutMillis)
     this._waitingClientsQueue.enqueue(resourceRequest, priority)
     this._dispense()
     return resourceRequest.promise

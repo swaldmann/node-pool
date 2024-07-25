@@ -10,7 +10,7 @@ const ResourceState = {
 
 class PriorityQueue {
   constructor(size) {
-    this._size = Math.max(+size | 0, 1)
+    this._size = Math.max(Number(size) || 0, 1)
     this._slots = Array.from({ length: this._size }, () => [])
   }
 
@@ -19,8 +19,8 @@ class PriorityQueue {
   }
 
   enqueue(obj, priority) {
-    priority = Math.min(Math.max((priority && +priority | 0) || 0, 0), this._size - 1)
-    this._slots[priority].push(obj)
+    const normalizedPriority = Math.min(Math.max(Number(priority) || 0, 0), this._size - 1)
+    this._slots[normalizedPriority].push(obj)
   }
 
   dequeue() {

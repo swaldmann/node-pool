@@ -12,6 +12,7 @@ class PriorityQueue {
   constructor(size) {
     this._size = Math.max(Number(size) || 0, 1)
     this._slots = Array.from({ length: this._size }, () => [])
+    this._nextNonEmptySlot = 0 // Track the next non-empty slot
   }
 
   get length() {
@@ -21,24 +22,30 @@ class PriorityQueue {
   enqueue(obj, priority) {
     const normalizedPriority = Math.min(Math.max(Number(priority) || 0, 0), this._size - 1)
     this._slots[normalizedPriority].push(obj)
+    if (normalizedPriority < this._nextNonEmptySlot) {
+      this._nextNonEmptySlot = normalizedPriority
+    }
   }
 
   dequeue() {
-    for (const slot of this._slots) {
-      if (slot.length) return slot.shift()
+    while (this._nextNonEmptySlot < this._size && this._slots[this._nextNonEmptySlot].length === 0) {
+      this._nextNonEmptySlot++
+    }
+    if (this._nextNonEmptySlot < this._size) {
+      return this._slots[this._nextNonEmptySlot].shift()
     }
     return undefined
   }
 
   get head() {
-    for (const slot of this._slots) {
-      if (slot.length > 0) return slot[0]
+    for (let i = 0; i < this._size; i++) {
+      if (this._slots[i].length > 0) return this._slots[i][0]
     }
     return undefined
   }
 
   get tail() {
-    for (let i = this._slots.length - 1; i >= 0; i--) {
+    for (let i = this._size - 1; i >= 0; i--) {
       if (this._slots[i].length > 0) return this._slots[i][this._slots[i].length - 1]
     }
     return undefined
@@ -341,22 +348,22 @@ class Pool extends EventEmitter {
   }
 
   _evict() {
-    const testsToRun = Math.min(this.options.numTestsPerEvictionRun, this._availableObjects.size)
     const evictionConfig = {
       softIdleTimeoutMillis: this.options.softIdleTimeoutMillis,
       idleTimeoutMillis: this.options.idleTimeoutMillis,
       min: this.options.min,
     }
-    const availableObjects = Array.from(this._availableObjects)
-    for (let testsHaveRun = 0; testsHaveRun < testsToRun;) {
-      const resource = availableObjects[testsHaveRun]
-      const shouldEvict = this._evictor.evict(evictionConfig, resource, this._availableObjects.size)
-      testsHaveRun++
-      if (shouldEvict) {
-        this._availableObjects.delete(resource)
-        this._destroy(resource)
+    const resourcesToEvict = []
+    for (const resource of this._availableObjects) {
+      if (resourcesToEvict.length >= this.options.numTestsPerEvictionRun) break
+      if (this._evictor.evict(evictionConfig, resource, this._availableObjects.size)) {
+        resourcesToEvict.push(resource)
       }
     }
+    resourcesToEvict.forEach(resource => {
+      this._availableObjects.delete(resource)
+      this._destroy(resource)
+    })
   }
 
   _scheduleEvictorRun() {

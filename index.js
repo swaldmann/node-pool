@@ -1,11 +1,11 @@
 const { EventEmitter } = require('events')
 
 const PooledResourceStateEnum = {
-  ALLOCATED: 'ALLOCATED', // In use
-  IDLE: 'IDLE', // In the queue, not in use.
-  INVALID: 'INVALID', // Failed validation
-  RETURNING: 'RETURNING', // Resource is in process of returning
-  VALIDATION: 'VALIDATION' // Currently being tested
+  ALLOCATED: 'ALLOCATED',
+  IDLE: 'IDLE',
+  INVALID: 'INVALID',
+  RETURNING: 'RETURNING',
+  VALIDATION: 'VALIDATION'
 }
 
 class Deque {
@@ -46,85 +46,15 @@ class Deque {
   }
 }
 
-class DoublyLinkedList {
-  constructor() {
-    this.head = null
-    this.tail = null
-    this.length = 0
-  }
-
-  insertBeginning(node) {
-    if (this.head === null) {
-      this.head = node
-      this.tail = node
-    } else {
-      this.insertBefore(this.head, node)
-    }
-    this.length++
-  }
-
-  insertEnd(node) {
-    if (this.tail === null) {
-      this.insertBeginning(node)
-    } else {
-      this.insertAfter(this.tail, node)
-    }
-  }
-
-  insertAfter(node, newNode) {
-    newNode.prev = node
-    newNode.next = node.next
-    if (node.next === null) {
-      this.tail = newNode
-    } else {
-      node.next.prev = newNode
-    }
-    node.next = newNode
-    this.length++
-  }
-
-  insertBefore(node, newNode) {
-    newNode.prev = node.prev
-    newNode.next = node
-    if (node.prev === null) {
-      this.head = newNode
-    } else {
-      node.prev.next = newNode
-    }
-    node.prev = newNode
-    this.length++
-  }
-
-  remove(node) {
-    if (node.prev === null) {
-      this.head = node.next
-    } else {
-      node.prev.next = node.next
-    }
-    if (node.next === null) {
-      this.tail = node.prev
-    } else {
-      node.next.prev = node.prev
-    }
-    node.prev = null
-    node.next = null
-    this.length--
-  }
-
-  static createNode(data) {
-    return { prev: null, next: null, data }
-  }
-}
-
 class Queue extends Deque {
   push(resourceRequest) {
-    const node = DoublyLinkedList.createNode(resourceRequest)
+    const node = { data: resourceRequest }
     resourceRequest.promise.catch(reason => {
       if (reason.name === 'TimeoutError') {
         this._list.remove(node)
       }
     })
-    this._list.insertEnd(node)
+    this._list.push(node)
   }
 }
 
@@ -514,16 +444,14 @@ class Pool extends EventEmitter {
 
   async use(fn, priority) {
     const resource = await this.acquire(priority)
-    return fn(resource).then(
-      result => {
-        this.release(resource)
-        return result
-      },
-      err => {
-        this.destroy(resource)
-        throw err
-      }
-    )
+    try {
+      const result = await fn(resource)
+      await this.release(resource)
+      return result
+    } catch (err) {
+      await this.destroy(resource)
+      throw err
+    }
   }
 
   release(resource) {

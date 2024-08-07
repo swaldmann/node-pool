@@ -114,15 +114,12 @@ class Pool extends EventEmitter {
   _destroy(resource) {
     resource.updateState(ResourceState.INVALID)
     this._all.delete(resource)
-    const destroyPromise = this.factory.destroy(resource.obj)
-    const wrappedDestroyPromise = this.options.destroyTimeoutMillis ? Promise.race([
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('destroy timed out')), this.options.destroyTimeoutMillis).unref()
-          ),
-          destroyPromise
-        ])
-      : destroyPromise
-    wrappedDestroyPromise.catch(reason => this.emit('factoryDestroyError', reason))
+    const _destroy = this.factory.destroy(resource.obj)
+    const wrapped = this.options.destroyTimeoutMillis ? Promise.race([
+      new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timed out')), this.options.destroyTimeoutMillis).unref()),
+      _destroy
+    ]) : _destroy
+    wrapped.catch(reason => this.emit('factoryDestroyError', reason))
     if (this._draining) return
     for (let i = 0; i < this.options.min - this.size; i++) this._createResource()
   }

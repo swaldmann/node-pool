@@ -111,16 +111,8 @@ class Pool extends EventEmitter {
     this.start()
   }
 
-  _destroy(resource) {
-    resource.updateState(ResourceState.INVALID)
-    this._all.delete(resource)
-    const _destroy = this.factory.destroy(resource.obj)
-    const wrapped = this.options.destroyTimeoutMillis ? Promise.race([
-      new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timed out')), this.options.destroyTimeoutMillis).unref()),
-      _destroy
-    ]) : _destroy
-    wrapped.catch(reason => this.emit('factoryDestroyError', reason))
-    if (this._draining) return
+  start() {
+    this._scheduleEvictorRun()
     for (let i = 0; i < this.options.min - this.size; i++) this._createResource()
   }
 
@@ -128,18 +120,26 @@ class Pool extends EventEmitter {
     const _create = this.factory.create()
     this._creates.add(_create)
     _create.then(resource => {
-        this._creates.delete(_create)
         const pooledResource = new PooledResource(resource)
         this._all.add(pooledResource)
         pooledResource.updateState(ResourceState.IDLE)
         this._available.add(pooledResource)
-        this._dispense()
       })
       .catch(reason => {
-        this._creates.delete(_create)
         this.emit('factoryCreateError', reason)
+      })
+      .finally(() => {
+        this._creates.delete(_create)
         this._dispense()
       })
+  }
+
+  acquire() {
+    if (this._draining) return Promise.reject(new Error('pool is draining and cannot accept work'))
+    const resourceRequest = new ResourceRequest(this.options.acquireTimeoutMillis)
+    this._queue.enqueue(resourceRequest)
+    this._dispense()
+    return resourceRequest.promise
   }
 
   _dispense() {
@@ -147,16 +147,16 @@ class Pool extends EventEmitter {
     if (waiting < 1) return
     const shortfall = waiting - (this._available.size + this._creates.size)
     for (let i = 0; i < Math.min(this.options.max - this.size, shortfall); i++) this._createResource()
-    const _dispatchPooledResourceToNextWaitingClient = resource => {
-      const clientResourceRequest = this._queue.dequeue()
-      if (!clientResourceRequest) {
+    const dispenseToNext = resource => {
+      const request = this._queue.dequeue()
+      if (!request) {
         resource.updateState(ResourceState.IDLE)
         this._available.add(resource)
         return false
       }
       this._loans.set(resource.obj, { pooledResource: resource })
       resource.updateState(ResourceState.ALLOCATED)
-      clientResourceRequest.resolve(resource.obj)
+      request.resolve(resource.obj)
       return true
     }
     for (let i = 0; i < Math.min(this._available.size, waiting); i++) {
@@ -173,13 +173,26 @@ class Pool extends EventEmitter {
               this._dispense()
               return
             }
-            _dispatchPooledResourceToNextWaitingClient(resource)
+            dispenseToNext(resource)
           })
       } else {
-        _dispatchPooledResourceToNextWaitingClient(resource)
+        dispenseToNext(resource)
       }
       return true
     }
+  }
+
+  _destroy(resource) {
+    resource.updateState(ResourceState.INVALID)
+    this._all.delete(resource)
+    const _destroy = this.factory.destroy(resource.obj)
+    const wrapped = this.options.destroyTimeoutMillis ? Promise.race([
+      new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timed out')), this.options.destroyTimeoutMillis).unref()),
+      _destroy
+    ]) : _destroy
+    wrapped.catch(reason => this.emit('factoryDestroyError', reason))
+    if (this._draining) return
+    for (let i = 0; i < this.options.min - this.size; i++) this._createResource()
   }
 
   _scheduleEvictorRun() {
@@ -206,19 +219,6 @@ class Pool extends EventEmitter {
     }
   }
 
-  start() {
-    if (this._draining) return
-    this._scheduleEvictorRun()
-    for (let i = 0; i < this.options.min - this.size; i++) this._createResource()
-  }
-
-  acquire() {
-    if (this._draining) return Promise.reject(new Error('pool is draining and cannot accept work'))
-    const resourceRequest = new ResourceRequest(this.options.acquireTimeoutMillis)
-    this._queue.enqueue(resourceRequest)
-    this._dispense()
-    return resourceRequest.promise
-  }
 
   release(resource) {
     const loan = this._loans.get(resource)
@@ -236,7 +236,6 @@ class Pool extends EventEmitter {
     if (!loan) return Promise.reject(new Error('Resource not currently part of this pool'))
     this._loans.delete(resource)
     const pooledResource = loan.pooledResource
-    pooledResource.updateState(ResourceState.INVALID)
     this._destroy(pooledResource)
     this._dispense()
     return Promise.resolve()

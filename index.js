@@ -25,21 +25,18 @@ class PooledResource {
 
 class ResourceRequest {
   constructor(ttl) {
-    this._ttl = ttl || null
     this._state = 'pending'
     this.promise = new Promise((resolve, reject) => {
       this._resolve = resolve
       this._reject = reject
-      if (ttl !== undefined) this.setTimeout(ttl)
+      if (this._state !== 'pending') return
+      this.removeTimeout()
+      this._timeout = setTimeout(() => this.reject(new Error('ResourceRequest timed out')), ttl)
     })
   }
 
   setTimeout(delay) {
-    if (this._state !== 'pending') return
-    const ttl = parseInt(delay, 10)
-    this.removeTimeout()
-    this._ttl = ttl
-    this._timeout = setTimeout(() => this.reject(new Error('ResourceRequest timed out')), ttl)
+
   }
 
   removeTimeout() {

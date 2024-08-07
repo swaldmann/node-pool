@@ -35,10 +35,6 @@ class ResourceRequest {
     })
   }
 
-  setTimeout(delay) {
-
-  }
-
   removeTimeout() {
     if (this._timeout) {
       clearTimeout(this._timeout)

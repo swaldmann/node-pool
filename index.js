@@ -74,7 +74,7 @@ class Queue {
   }
 
   dequeue() {
-    return this._queue.shift() || null
+    return this._queue.shift()
   }
 
   get length() {
@@ -82,7 +82,7 @@ class Queue {
   }
 
   get tail() {
-    return this._queue[this._queue.length - 1] || null
+    return this._queue[this._queue.length - 1]
   }
 }
 

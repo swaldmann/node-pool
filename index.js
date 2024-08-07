@@ -178,7 +178,6 @@ class Pool extends EventEmitter {
       } else {
         dispenseToNext(resource)
       }
-      return true
     }
   }
 
@@ -198,27 +197,31 @@ class Pool extends EventEmitter {
   _scheduleEvictorRun() {
     if (this.options.evictionRunIntervalMillis > 0) {
       this._scheduledEviction = setTimeout(() => {
-        const evictionConfig = {
-          softIdleTimeoutMillis: this.options.softIdleTimeoutMillis,
-          idleTimeoutMillis: this.options.idleTimeoutMillis,
-          min: this.options.min
-        }
-        const resourcesToEvict = Array.from(this._available)
-          .slice(0, this.options.numTestsPerEvictionRun)
-          .filter(resource => {
-            const idleTime = Date.now() - resource.lastIdleTime
-            const softEvict = evictionConfig.softIdleTimeoutMillis > 0 && evictionConfig.softIdleTimeoutMillis < idleTime && evictionConfig.min < this._available.size
-            return softEvict || evictionConfig.idleTimeoutMillis < idleTime
+        try {
+          const evictionConfig = {
+            softIdleTimeoutMillis: this.options.softIdleTimeoutMillis,
+            idleTimeoutMillis: this.options.idleTimeoutMillis,
+            min: this.options.min
+          }
+          const resourcesToEvict = Array.from(this._available)
+            .slice(0, this.options.numTestsPerEvictionRun)
+            .filter(resource => {
+              const idleTime = Date.now() - resource.lastIdleTime
+              const softEvict = evictionConfig.softIdleTimeoutMillis > 0 && evictionConfig.softIdleTimeoutMillis < idleTime && evictionConfig.min < this._available.size
+              return softEvict || evictionConfig.idleTimeoutMillis < idleTime
+            })
+          resourcesToEvict.forEach(resource => {
+            this._available.delete(resource)
+            this._destroy(resource)
           })
-        resourcesToEvict.forEach(resource => {
-          this._available.delete(resource)
-          this._destroy(resource)
-        })
-        this._scheduleEvictorRun()
+        } catch (error) {
+          this.emit('evictorRunError', error)
+        } finally {
+          this._scheduleEvictorRun()
+        }
       }, this.options.evictionRunIntervalMillis).unref()
     }
   }
-
 
   release(resource) {
     const loan = this._loans.get(resource)

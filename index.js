@@ -166,20 +166,16 @@ class Pool extends EventEmitter {
   }
 
   _dispense() {
-    const numWaitingClients = this.pending
+    const numWaitingClients = this._waitingClientsQueue.length
     if (numWaitingClients < 1) return
-    const _potentiallyAllocableResourceCount = this._availableObjects.size + this._factoryCreateOperations.size
-    const resourceShortfall = numWaitingClients - _potentiallyAllocableResourceCount
-    const actualNumberOfResourcesToCreate = Math.min(this.spareResourceCapacity, resourceShortfall)
-    for (let i = 0; i < actualNumberOfResourcesToCreate; i++) {
-      this._createResource()
-    }
-    if (this.options.testOnBorrow) {
-      const resourcesToTest = Math.min(this._availableObjects.size, numWaitingClients)
-      for (let i = 0; i < resourcesToTest; i++) {
-        if (this._availableObjects.size < 1) return false
-        const resource = this._availableObjects.values().next().value
-        this._availableObjects.delete(resource)
+    const resourceShortfall = numWaitingClients - (this._availableObjects.size + this._factoryCreateOperations.size)
+    const actualNumberOfResourcesToCreate = Math.min(this.options.max - this.size, resourceShortfall)
+    for (let i = 0; i < actualNumberOfResourcesToCreate; i++) this._createResource()
+    for (let i = 0; i < Math.min(this._availableObjects.size, numWaitingClients); i++) {
+      if (this._availableObjects.size < 1) return false
+      const resource = this._availableObjects.values().next().value
+      this._availableObjects.delete(resource)
+      if (this.options.testOnBorrow) {
         resource.updateState(ResourceState.VALIDATION)
         this.factory.validate(resource.obj)
           .then(isValid => {
@@ -191,17 +187,13 @@ class Pool extends EventEmitter {
             }
             this._dispatchPooledResourceToNextWaitingClient(resource)
           })
-        return true
-      }
-    } else {
-      const resourcesToDispatch = Math.min(this._availableObjects.size, numWaitingClients)
-      for (let i = 0; i < resourcesToDispatch; i++) {
+      } else {
         if (this._availableObjects.size < 1) return false
         const resource = this._availableObjects.values().next().value
         this._availableObjects.delete(resource)
         this._dispatchPooledResourceToNextWaitingClient(resource)
-        return true
       }
+      return true
     }
   }
 
@@ -245,10 +237,10 @@ class Pool extends EventEmitter {
     if (!this._started && !this.options.autostart) this.start()
     if (this._draining) return Promise.reject(new Error('pool is draining and cannot accept work'))
     if (
-      this.spareResourceCapacity < 1 &&
+      (this.options.max - this.size) < 1 &&
       this._availableObjects.size < 1 &&
       this.options.maxWaitingClients !== undefined &&
-      this.pending >= this.options.maxWaitingClients
+      this._waitingClientsQueue.length >= this.options.maxWaitingClients
     ) {
       return Promise.reject(new Error('max waitingClients count exceeded'))
     }
@@ -256,18 +248,6 @@ class Pool extends EventEmitter {
     this._waitingClientsQueue.enqueue(resourceRequest, priority)
     this._dispense()
     return resourceRequest.promise
-  }
-
-  async use(fn, priority) {
-    const resource = await this.acquire(priority)
-    try {
-      const result = await fn(resource)
-      await this.release(resource)
-      return result
-    } catch (err) {
-      await this.destroy(resource)
-      throw err
-    }
   }
 
   release(resource) {
@@ -310,34 +290,8 @@ class Pool extends EventEmitter {
     return Promise.all(reflectedDestroyPromises)
   }
 
-  ready() {
-    return new Promise(resolve => {
-      const isReady = () => {
-        if (this.available >= this.options.min) resolve()
-        else setTimeout(isReady, 100)
-      }
-      isReady()
-    })
-  }
-
   get size() {
     return this._allObjects.size + this._factoryCreateOperations.size
-  }
-
-  get spareResourceCapacity() {
-    return this.options.max - this.size
-  }
-
-  get available() {
-    return this._availableObjects.size
-  }
-
-  get borrowed() {
-    return this._resourceLoans.size
-  }
-
-  get pending() {
-    return this._waitingClientsQueue.length
   }
 }
 
